@@ -60,12 +60,11 @@
                     profile-event (event)                  ;kreira novi cl_event (dogadjaj)
                     profile-event1 (event)
                     profile-event2 (event)]
-       (println "cl-partial-output " cl-partial-output)
        (facts
        (println "============ Naive reduction ======================================")
         ;; ============ Naive reduction ======================================
-         (set-args! naive-reduction cl-data cl-output) => naive-reduction
-        (enq-write! cqueue cl-data data) => cqueue
+        (set-args! naive-reduction cl-data cl-output) => naive-reduction
+        (enq-write! cqueue cl-data data) => cqueue                                 ;SETUJE VREDNOST GLOBALNE PROMENJIVE cl-data SA VREDNOSCU data 
         (enq-nd! cqueue naive-reduction (work-size [1]) nil profile-event)
         => cqueue
         (follow profile-event) => notifications
@@ -90,17 +89,18 @@
          (set-args! reduction-vector cl-data cl-partial-sums cl-partial-output)       ;setovanje polja u kernelu
         => reduction-vector
         (enq-nd! cqueue reduction-vector                           ;asinhrono izvrsava kernel(kernel) u uredjaju(dev) sa listom kernela(queue)    queue kernel
-         (work-size [(/ num-items 4)] [workgroup-size])    ;work size - [broj elelmenata 2na20=1048576] [256]
+         (work-size [(/ num-items 4)] [workgroup-size])    ;work size - [broj elelmenata 2na20 / 4 =65536] [256]
          nil profile-event1)                               ;wait_event - da li da se ceka zavrsetak izvrsenja navedenih event-a tj proile-event1
-        (follow profile-event1)
+        (follow profile-event1)   ;postavlja event1
         
+        ;rezultat iz prethodnog kernela stavljamo kao ulaz u isti taj kernel
         (set-args! reduction-vector cl-partial-output cl-partial-sums cl-partial-output)  ;setovanje promenjivih u kernelu   reduction-vector
                                                                                           ;cl-partial-sums=1024  i                                                                              
         => reduction-vector                                                               ;cl-partial-output = cl_buffer objekat u kontekstu ctx velicine (4 * 2na20 / 256 = 2na14) i read-write ogranicenjima
         (enq-nd! cqueue reduction-vector                                            ;asinhrono izvrsava kernel u uredjaju. cqueue, kernel koji se izvrsava
                  (work-size [(/ num-items 4 workgroup-size 4)] [workgroup-size])    ;2na20 / 4 / 256 / 4 = 256
                  nil profile-event2)                                                ;wait_event - da li da se ceka zavrsetak izvrsenja navedenih event-a tj proile-event1
-        (follow profile-event2)
+        (follow profile-event2)   ;postavlja event2
         
         (enq-read! cqueue cl-partial-output partial-output)
         (finish! cqueue)
