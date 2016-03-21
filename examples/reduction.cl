@@ -8,26 +8,46 @@ __kernel void naive_reduction(__global float* data, __global float* output) {
     *output = sum;
 }
 
-__kernel void reduction_scalar(__global float* data,
-                               __local float* partial_sums,
-                               __global float* output) {
+__kernel void reduction_scalar(__global float* data,           //2na20 elemeneta koji su smesteni u GLOBALNU MEMORIJU pozivom kernel 0,1,2,3,4,5,6,7, ... ,1048575
+
+                               __local float* partial_sums,    //Lokalne medjusume. Npr:
+                                                               //Za prvu globalnu(izlaznu - output) medjusumu postoji 16 medjusuma sa medjuzbirovima po 16 clanova
+                                                               //  0+  1+  2+ ... + 15 = 120  partial_sums[0]
+                                                               // 16+ 17+ 18+ ... + 31 = 376  partial_sums[1]
+                                                               // 32+ 33+ 34+ ... + 47 = 632  partial_sums[2]
+                                                               //     ...
+                                                               //240+241+242+ ... +255= 3960  partial_sums[15].Zbir ovih 16 lokalnih medjusuma je zbir prve globalne medjusume output[0]=32,640
+                                                                 
+                               __global float* output) {       //Izlaz iz kernela. Niz medjusuma koje su zbir po 256 polja iz globalne memorije data jer je lokalna velicina 256
+                                                               //  0- 255 =  32640   0+1+2+3+4+5+ ... +254+255   = 32640  Zbir prvih 16 lokalnih medjusuma partial_sums ili 256 prvih clanova
+                                                               //256- 511 =  98176   256+257+258+ ... +510+511   = 98176  Zbir drugih 16 lokalnih medjusuma partial_sums ili 256 drugih clanova
+                                                               //512- 767 = 163712   512+513+514+ ... +766+767   =163712  Zbir trecih 16 lokalnih medjusuma partial_sums ili 256 trcih clanova
+                                                               //768-1023 = 229248   768+769+770+ ... +1022+1023 =229248  Zbir cetvrtih 16 lokalnih medjusuma partial_sums ili 256 cetvrtih clanova 
+                                                               //          ...                    ...                              ...                           
 
 
-    int lid = get_local_id(0);
-    int gsize = get_local_size(0);
+    int lid = get_local_id(0);         //Uzima po 16 vrednosti u intervalu 0-255 (na svakih 16, 0-15, 16-31, 32-47, ... , 240-255).
+                                       //Lokalni ID se ponavlja ali u razlicitim work-group.Zato lid-ova ima samo 256 jer je to velicina work-item.
+    int gsize = get_local_size(0);     //256. Vrednosti data se kombinuju u 4,096 work-groups sa po 256 work-items, pa je lokalna velicina 256 (4,096*256=1,048,576 tj. 2na20)
+    
+    //printf("%u\n", get_global_id(0));   
 
-    partial_sums[lid] = data[get_global_id(0)];
-    barrier(CLK_LOCAL_MEM_FENCE);
+    partial_sums[lid] = data[get_global_id(0)];    //Transver iz globalne memorije u lokalnu. 
+                                                   //Za svaki work-group ucitava se podskup ulaznih podataka tj. 256 work-item-a. Na osnovu ovog upisa racuna se medjusuma work-group
+    barrier(CLK_LOCAL_MEM_FENCE);                  //Blokira pokusaj upisa u 
+
 
     for (int i = gsize/2; i > 0; i >>= 1) {
         if (lid < i) {
             partial_sums[lid] += partial_sums[lid + i];
+
         }
         barrier(CLK_LOCAL_MEM_FENCE);
     }
 
+
     if(lid == 0) {
-        output[get_group_id(0)] = partial_sums[0];
+        output[get_group_id(0)] = partial_sums[0];        //Vraca vrednost pojedinacne work-group (Na kraju krajeva za svih 4,096 komada)
     }
 }
 
@@ -47,6 +67,7 @@ __kernel void reduction_vector(__global float4* data,
         }
           barrier(CLK_LOCAL_MEM_FENCE);
     }
+
 
     if(lid == 0) {
         output[get_group_id(0)] = dot (partial_sums[0], (float4)(1.0f));

@@ -33,7 +33,6 @@
 
   (facts
    "Listing on page 225."
-  (println "============ Listing on page 225. ======================================")
    (let [program-source
          (slurp (io/reader "examples/reduction.cl"))
          num-items (Math/pow 2 20)                    ;2 na 20-tu = 1048576
@@ -41,10 +40,14 @@
          workgroup-size 256
          notifications (chan)
          follow (register notifications)
+         ;data (let [d (direct-buffer bytesize)]       ;bytesize = 4 * 2na20
+         ;       (dotimes [n num-items]                ;vrti po n od 0 do 4 * 2na20
+         ;         (.putFloat ^java.nio.ByteBuffer d (* n Float/BYTES) 1.0))   ;#object[java.nio.DirectByteBuffer 0x629c81b7 java.nio.DirectByteBuffer[pos=0 lim=4194304 cap=4194304]]
+         ;       d)
          data (let [d (direct-buffer bytesize)]       ;bytesize = 4 * 2na20
                 (dotimes [n num-items]                ;vrti po n od 0 do 4 * 2na20
-                  (.putFloat ^java.nio.ByteBuffer d (* n Float/BYTES) 1.0))   ;#object[java.nio.DirectByteBuffer 0x629c81b7 java.nio.DirectByteBuffer[pos=0 lim=4194304 cap=4194304]]
-                d)
+                  (.putFloat ^java.nio.ByteBuffer d (* n Float/BYTES) n))   ;#object[java.nio.DirectByteBuffer 0x629c81b7 java.nio.DirectByteBuffer[pos=0 lim=4194304 cap=4194304]]
+                d)         
          cl-partial-sums (* workgroup-size Float/BYTES)       ;4 * 256 = 1024
          partial-output (float-array (/ bytesize workgroup-size))      ;2na20 / 256 = 2na20 / 2na8 = 2na12   - niz od 4096 elemenata
          output (float-array 1)               ;pocetna vrednost jedan clan sa vrednoscu 0.0
@@ -53,18 +56,31 @@
                     cl-output (cl-buffer ctx Float/BYTES :write-only)
                     cl-partial-output (cl-buffer ctx (/ bytesize workgroup-size)   ;kreira cl_buffer objekat u kontekstu ctx velicine (4 * 2na20 / 256 = 2na14) i read-write ogranicenjima
                                                  :read-write)
-                    prog (build-program! (program-with-source ctx [program-source]))
-                    naive-reduction (kernel prog "naive_reduction")
-                    reduction-scalar (kernel prog "reduction_scalar")
-                    reduction-vector (kernel prog "reduction_vector")
+                    prog (build-program! (program-with-source ctx [program-source]))   ;kreira program u kontekstu ctx sa kodom programa u kojem se nalaze tri kernela 
+                    naive-reduction (kernel prog "naive_reduction")            ;definise kernel iz prog
+                    reduction-scalar (kernel prog "reduction_scalar")          ;definise kernel iz prog
+                    reduction-vector (kernel prog "reduction_vector")          ;definise kernel iz prog
                     profile-event (event)                  ;kreira novi cl_event (dogadjaj)
-                    profile-event1 (event)
-                    profile-event2 (event)]
+                    profile-event1 (event)                 ;          -||-
+                    profile-event2 (event)]                ;          -||- 
+
+       (println "(apply + (float-array (range 0 1048576))): " (apply + (float-array (range 0 1048576))))
+       (let [r (double  
+                 (loop [sum 0 cnt 1]
+                   (if (= cnt 1048576)
+                           sum
+                           (recur (+ cnt sum) (inc cnt)))))]
+         (println "SUMA: " r))
+       
        (facts
+         
        (println "============ Naive reduction ======================================")
+       
         ;; ============ Naive reduction ======================================
         (set-args! naive-reduction cl-data cl-output) => naive-reduction
-        (enq-write! cqueue cl-data data) => cqueue                                 ;SETUJE VREDNOST GLOBALNE PROMENJIVE cl-data SA VREDNOSCU data 
+        (enq-write! cqueue cl-data data) => cqueue                                 ;SETUJE VREDNOST GLOBALNE PROMENJIVE cl-data SA VREDNOSCU data
+        
+        ;(println "data: " (seq data))        
         (enq-nd! cqueue naive-reduction (work-size [1]) nil profile-event)
         => cqueue
         (follow profile-event) => notifications
@@ -72,7 +88,9 @@
         (finish! cqueue) => cqueue
         (println "Naive reduction time:"
                  (-> (<!! notifications) :event profiling-info durations :end))
-        (aget output 0) => num-items
+        (println "output: " (seq output))        
+        ;(aget output 0) => num-items
+       (println "============ Scalar reduction ======================================")
         ;; ============= Scalar reduction ====================================
          (set-args! reduction-scalar cl-data cl-partial-sums cl-partial-output)       
         => reduction-scalar
@@ -84,7 +102,12 @@
         (finish! cqueue)
         (println "Scalar reduction time:"
                  (-> (<!! notifications) :event profiling-info durations :end))
-        (long (first partial-output)) => workgroup-size
+ 
+        ;(long (first partial-output)) => workgroup-size
+       ;(println "partial-output POJEDINACNA RESENJA: " (seq partial-output))
+       (println "UKUPAN ZBIR MEDJUSUMA" (apply + (float-array (seq partial-output))))
+        
+       (println "============ Vector reduction ======================================")
         ;; =============== Vector reduction ==================================
          (set-args! reduction-vector cl-data cl-partial-sums cl-partial-output)       ;setovanje polja u kernelu
         => reduction-vector
@@ -108,10 +131,14 @@
                  (-> (<!! notifications) :event profiling-info durations :end)
                  (-> (<!! notifications) :event profiling-info durations :end))
         
-        (first partial-output) => num-items
+        ;(first partial-output) => num-items
+        (println "output: " (seq output))
         
-        (println (first partial-output))
-        (println num-items)        
+       (println "============ Ostalo ======================================")        
+        (println "first partial-output: " (first partial-output))
+        ;(println "seq partial-output: " (seq partial-output))       
+        (println "num-items: " num-items) 
+        (println "output: " (seq output))
         (println "---------------KRAJ -------------------")        
         )))))
   
