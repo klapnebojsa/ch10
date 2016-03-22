@@ -92,11 +92,12 @@
         ;(aget output 0) => num-items
        (println "============ Scalar reduction ======================================")
         ;; ============= Scalar reduction ====================================
-         (set-args! reduction-scalar cl-data cl-partial-sums cl-partial-output)       
-        => reduction-scalar
-        (enq-nd! cqueue reduction-scalar
-                 (work-size [num-items] [workgroup-size])
-                 nil profile-event)
+         (set-args! reduction-scalar cl-data cl-partial-sums cl-partial-output)  ;setovanje promenjivih u kernelu        reduction-scalar
+                                                                                 ;cl-partial-sums=1024  i         
+        => reduction-scalar                                                      ;cl-partial-output = cl_buffer objekat u kontekstu ctx velicine (4 * 2na20 / 256 = 2na14) i read-write ogranicenjima
+        (enq-nd! cqueue reduction-scalar                       ;asinhrono izvrsava kernel u uredjaju. cqueue, kernel koji se izvrsava
+                 (work-size [num-items] [workgroup-size])      ;[2na20] [256] 
+                 nil profile-event)                            ;wait_event - da li da se ceka zavrsetak izvrsenja navedenih event-a tj proile-event1
         (follow profile-event)
         (enq-read! cqueue cl-partial-output partial-output)
         (finish! cqueue)
@@ -132,7 +133,7 @@
                  (-> (<!! notifications) :event profiling-info durations :end))
         
         ;(first partial-output) => num-items
-        (println "output: " (seq output))
+        ;(println "output: " (seq output))
         
        (println "============ Ostalo ======================================")        
         (println "first partial-output: " (first partial-output))
